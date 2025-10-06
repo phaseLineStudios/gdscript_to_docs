@@ -39,7 +39,7 @@ gdscript_to_docs path/to/project \
 
 Windows example (be sure to quote paths with spaces / backslashes):
 ```powershell
-gdscript_to_docs "E:\Godot Projects\MyGame\src" --out ".\docs" --keep-structure --make-index --split-functions
+gdscript_to_docs "\path\to\godot\project" --out ".\docs" --keep-structure --make-index --split-functions
 ```
 
 This generates:
