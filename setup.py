@@ -14,7 +14,7 @@ setup(
     author="Eirik",
     author_email="tapwingo.actual@pm.me",
     packages=find_packages(exclude=["tests", "tests.*"]),
-    python_requires=">=3.9",
+    python_requires=">=3.11",
     install_requires=[],
     extras_require={
         "dev": [ "pytest>=7", "pytest-cov>=4", "python-coveralls" ],
