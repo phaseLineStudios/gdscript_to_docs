@@ -1,24 +1,56 @@
 from __future__ import annotations
+"""GDScript documentation extractor and Markdown renderer.
+
+This module powers the `gdscript_to_docs` package:
+
+- Parses GDScript files for documentation comments and declarations.
+- Converts Godot-style BBCode to Markdown.
+- Renders class and function reference pages (Doxygen-like or classic).
+- Builds a cross-reference index and writes the final Markdown tree.
+
+High-level entry point: :func:`write_docs`.
+"""
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Iterable
 import re, sys
 import os
 
-# =========================================
-# BBCode → Markdown helpers
-# =========================================
+_CODE_INLINE_MAX = 80 # Inline code max length before promoted to fenced block.
 
-_CODE_INLINE_MAX = 80
 
 def _code_repl(s: str) -> str:
+    """Render a BBCode inline/code block snippet as Markdown.
+
+    Inserts a zero-width space before backticks inside inline code to prevent
+    premature closing. Promotes multi-line or long content to a fenced block.
+
+    Args:
+        s: Raw code snippet content from a [code] tag.
+
+    Returns:
+        Markdown string for inline code or a fenced code block.
+    """
     s_stripped = s.strip("\n")
     if "\n" in s_stripped or len(s_stripped) > _CODE_INLINE_MAX:
         return f"\n```\n{s_stripped}\n```\n"
-    # insert a real zero-width space before any backtick inside inline code
     return f"`{s_stripped.replace('`', '\u200b`')}`"
 
+
 def bbcode_to_markdown(text: str) -> str:
+    """Convert a subset of Godot BBCode to Markdown.
+
+    Supported tags include [code], [codeblock], [b], [i], [u], [url], [img],
+    [center], [color], [font], and Godot reference tags like
+    [method Foo.bar]. Line breaks via [br] are preserved.
+
+    Args:
+        text: Input string with BBCode markup.
+
+    Returns:
+        Markdown string with inline formatting and code blocks converted.
+    """
     t = text.replace("\r\n", "\n")
     t = re.sub(r"\[codeblock\](.*?)\[/codeblock\]", lambda m: f"\n```\n{m.group(1).strip()}\n```\n", t, flags=re.S)
     t = re.sub(r"\[code\](.*?)\[/code\]", lambda m: _code_repl(m.group(1)), t, flags=re.S)
@@ -35,25 +67,52 @@ def bbcode_to_markdown(text: str) -> str:
     t = t.replace("[br]", "  \n")
     return t.strip()
 
-# =========================================
-# Data structures
-# =========================================
 
 @dataclass
 class TutorialLink:
+    """External tutorial reference attached to a docblock.
+
+    Attributes:
+        title: Optional link text to display.
+        url: Absolute or relative URL.
+    """
     title: Optional[str]
     url: str
 
+
 @dataclass
 class DocBlock:
+    """Parsed documentation block (script-level or member-level).
+
+    Attributes:
+        raw: Cleaned raw text (BBCode kept for link extraction).
+        markdown: Markdown-rendered form of ``raw``.
+        deprecated: True if a ``@deprecated`` tag was present.
+        experimental: True if an ``@experimental`` tag was present.
+        tutorials: Collected tutorial links from ``@tutorial(...)`` tags.
+    """
     raw: str
     markdown: str
     deprecated: bool=False
     experimental: bool=False
     tutorials: List[TutorialLink] = field(default_factory=list)
 
+
 @dataclass
 class MemberDoc:
+    """Documentation for a single script member (func/var/const/signal/enum).
+
+    Attributes:
+        kind: One of ``func``, ``var``, ``const``, ``signal``, ``enum``.
+        name: Declared identifier.
+        signature: Pretty signature (for functions/signals).
+        type_hint: Type annotation (for vars/consts), if parsed.
+        decorators: Lines of decorators (``@tool`` etc.).
+        doc: Attached :class:`DocBlock` if found.
+        source_start_line: 1-based start line in source (inclusive), if captured.
+        source_end_line: 1-based end line in source (exclusive), if captured.
+        source_code: Extracted source snippet for the declaration, if captured.
+    """
     kind: str
     name: str
     signature: Optional[str] = None
@@ -64,34 +123,60 @@ class MemberDoc:
     source_end_line: Optional[int] = None
     source_code: Optional[str] = None
 
+
 @dataclass
 class ScriptDoc:
+    """Documentation for a single GDScript file.
+
+    Attributes:
+        path: Absolute path to the .gd file.
+        class_name: Value of ``class_name`` if present.
+        extends: Value of ``extends`` if present.
+        script_doc: Script-level :class:`DocBlock` (or None).
+        members: Collected member docs in file order (deduped).
+    """
     path: Path
     class_name: Optional[str]
     extends: Optional[str]
     script_doc: Optional[DocBlock]
     members: List[MemberDoc]=field(default_factory=list)
 
-# For reference extraction and linking
+
 @dataclass
 class ParsedReference:
-    kind: str                  # method|member|signal|constant|enum|class
-    raw_target: str            # as in the tag, e.g., 'CharacterBody2D.move_and_slide' or 'move_and_slide'
-    cls: Optional[str]         # parsed class part (if any)
-    member: Optional[str]      # parsed member part (if any)
+    """A parsed ``[method|member|signal|constant|enum|class ...]`` reference.
+
+    Attributes:
+        kind: Reference kind.
+        raw_target: The raw target text inside the tag.
+        cls: Parsed class part (if provided or inferred).
+        member: Parsed member part (if any).
+    """
+    kind: str
+    raw_target: str
+    cls: Optional[str]
+    member: Optional[str]
+
 
 @dataclass
 class ClassIndexEntry:
-    title: str                               # class_name or file stem
-    class_page_rel: Path                     # Path relative to output root
-    functions_dir_rel: Optional[Path]        # e.g., ClassName/functions
-    members_by_kind: Dict[str, set]          # kind -> {names}
-    function_pages_rel: Dict[str, Path]      # name -> relative path to per-function file (if split)
+    """Index entry for hyperlinking between pages.
 
-# =========================================
-# Regexes
-# =========================================
+    Attributes:
+        title: Class name or file stem used as display title.
+        class_page_rel: Relative path to the class page from output root.
+        functions_dir_rel: Relative dir for per-function pages (if split).
+        members_by_kind: Mapping of kind → set of member names.
+        function_pages_rel: Mapping function name → relative file path.
+    """
+    title: str
+    class_page_rel: Path
+    functions_dir_rel: Optional[Path]
+    members_by_kind: Dict[str, set]
+    function_pages_rel: Dict[str, Path]
 
+
+# GDScript declaration patterns (approximate but fast).
 FUNC_RE = re.compile(r"^\s*(?:static\s+)?func\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*([^:]+))?\s*:")
 VAR_RE  = re.compile(r"^\s*(?:@[\w\(\)\.,\s:\"']+\s+)*var\s+([A-Za-z_]\w*)(?:\s*:\s*([^=]+?))?(?:\s*=|\s*$)")
 CONST_RE = re.compile(r"^\s*const\s+([A-Za-z_]\w*)(?:\s*:\s*([^=]+?))?\s*=")
@@ -102,11 +187,20 @@ EXTENDS_RE = re.compile(r"^\s*extends\s+(.+)$")
 DECORATOR_LINE_RE = re.compile(r"^\s*@[\w\(\)\.,\s:\"']+$")
 DOC_LINE_RE = re.compile(r"^\s*##(.*)$")
 
-# =========================================
-# Internal helpers
-# =========================================
 
 def _collect_docblock(lines: List[str], start_i: int) -> tuple[DocBlock, int]:
+    """Collect a contiguous block of ``##`` lines starting at ``start_i``.
+
+    Recognizes ``@deprecated``, ``@experimental``, and ``@tutorial(title?): url``.
+
+    Args:
+        lines: File lines.
+        start_i: Index where a ``##`` doc line is known to exist.
+
+    Returns:
+        (DocBlock, next_index) where ``next_index`` is the first line after the
+        consumed docblock.
+    """
     buff: List[str] = []
     i = start_i
     while i < len(lines):
@@ -132,6 +226,17 @@ def _collect_docblock(lines: List[str], start_i: int) -> tuple[DocBlock, int]:
     return db, i
 
 def _split_brief_details(md: str) -> tuple[str, str]:
+    """Split a Markdown paragraph into brief sentence and remainder.
+
+    The brief is the first sentence ending with ``. ! ?`` if present; otherwise
+    the first line.
+
+    Args:
+        md: Markdown text.
+
+    Returns:
+        (brief, details) where either may be empty strings.
+    """
     s = (md or "").strip()
     if not s:
         return "", ""
@@ -144,6 +249,7 @@ def _split_brief_details(md: str) -> tuple[str, str]:
     return parts[0].strip(), "\n".join(parts[1:]).strip()
 
 def _inline_sig(m: MemberDoc) -> str:
+    """Build a compact inline signature for list views."""
     if m.kind == "func":
         return f"`{m.signature}`" if m.signature else f"`func {m.name}()`"
     if m.kind == "var":
@@ -159,6 +265,7 @@ def _inline_sig(m: MemberDoc) -> str:
     return f"`{m.name}`"
 
 def _block_sig(m: MemberDoc) -> List[str]:
+    """Build a fenced signature block for detailed sections."""
     if m.kind == "func":
         return ["```gdscript", m.signature or f"func {m.name}()", "```"]
     if m.kind == "var":
@@ -174,22 +281,34 @@ def _block_sig(m: MemberDoc) -> List[str]:
     return []
 
 def _slug(s: str) -> str:
+    """Create a filesystem-safe slug from a member name."""
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", s).strip("-")
 
 def _anchor_id(s: str) -> str:
-    # Conservative GitHub-like anchor
+    """Generate a conservative GitHub-style anchor ID from a heading text."""
     s = s.strip().lower()
-    s = re.sub(r"[^\w\- ]+", "", s)   # keep word chars, dash, space, underscore
+    s = re.sub(r"[^\w\- ]+", "", s)
     s = s.replace(" ", "-")
     return s
 
 def _indent_level(line: str) -> int:
+    """Count leading indentation characters (spaces/tabs)."""
     i = 0
     while i < len(line) and line[i] in (" ", "\t"):
         i += 1
     return i
 
 def _capture_function_block(lines: List[str], func_start_idx: int) -> tuple[int, str]:
+    """Capture a function's indented block to compute end line and source.
+
+    Args:
+        lines: All file lines.
+        func_start_idx: Index of the ``func`` declaration line.
+
+    Returns:
+        (next_index, code) where ``next_index`` is the first line after the
+        captured block; ``code`` is the extracted source string (with newline).
+    """
     start = func_start_idx
     func_line = lines[start]
     base_indent = _indent_level(func_line)
@@ -205,13 +324,22 @@ def _capture_function_block(lines: List[str], func_start_idx: int) -> tuple[int,
     code = "\n".join(lines[start:end]).rstrip() + "\n"
     return end, code
 
-# =========================================
-# Reference extraction
-# =========================================
-
 REF_TAG_RE = re.compile(r"\[(method|member|signal|constant|enum|class)\s+([^\]]+)\]")
 
 def extract_references_from_text(text_with_bbcode: str, default_class: Optional[str]) -> List[ParsedReference]:
+    """Extract all Godot reference tags from doc text.
+
+    The parser supports both explicit targets (``Class.member``) and
+    implicit ones (``member``), in which case ``default_class`` is used for
+    non-class kinds.
+
+    Args:
+        text_with_bbcode: Source doc text (BBCode allowed).
+        default_class: Current class title to resolve implicit members.
+
+    Returns:
+        A list of :class:`ParsedReference` entries, in document order.
+    """
     refs: List[ParsedReference] = []
     for kind, target in REF_TAG_RE.findall(text_with_bbcode or ""):
         target = target.strip()
@@ -228,11 +356,16 @@ def extract_references_from_text(text_with_bbcode: str, default_class: Optional[
         refs.append(ParsedReference(kind=kind, raw_target=target, cls=cls, member=member))
     return refs
 
-# =========================================
-# Rendering
-# =========================================
-
 def _render_script_markdown_classic(doc: ScriptDoc, project_root: Path) -> str:
+    """Render a single class page in the compact 'classic' style.
+
+    Args:
+        doc: Parsed script documentation.
+        project_root: Root used to present relative file paths.
+
+    Returns:
+        The Markdown page content.
+    """
     title = doc.class_name or doc.path.stem
     rel = doc.path.relative_to(project_root) if hasattr(Path, "is_relative_to") and doc.path.is_relative_to(project_root) else doc.path
     lines = [f"# {title}", "", f"*File:* `{rel.as_posix()}`"]
@@ -279,6 +412,18 @@ def render_script_markdown(
     style: str = "doxygen",
     link_functions_dir: str | None = None
 ) -> str:
+    """Render a class page in Doxygen-like or classic style.
+
+    Args:
+        doc: Parsed script documentation.
+        project_root: Root used to present relative file paths.
+        style: One of ``'doxygen'`` (default) or ``'classic'``.
+        link_functions_dir: If set, function summary entries link to per-function
+            pages under ``<link_functions_dir>/<slug>.md``.
+
+    Returns:
+        The Markdown page content.
+    """
     if style not in ("classic", "doxygen"):
         style = "doxygen"
     if style == "classic":
@@ -296,7 +441,6 @@ def render_script_markdown(
         lines.append("> " + " • ".join(flags))
     lines.append("")
 
-    # Synopsis
     lines += ["## Synopsis", ""]
     syn = ["```gdscript"]
     if doc.class_name: syn.append(f"class_name {doc.class_name}")
@@ -304,7 +448,6 @@ def render_script_markdown(
     syn.append("```")
     lines += syn + [""]
 
-    # Brief / Detailed
     brief, details = ("", "")
     if doc.script_doc and doc.script_doc.markdown:
         brief, details = _split_brief_details(doc.script_doc.markdown)
@@ -318,7 +461,6 @@ def render_script_markdown(
         tuts = " • ".join(f"[{t.title}]({t.url})" if t.title else f"<{t.url}>" for t in doc.script_doc.tutorials)
         lines += [f"**Tutorials:** {tuts}", ""]
 
-    # Summary sections
     by_kind: Dict[str, List[MemberDoc]] = {}
     for m in doc.members:
         by_kind.setdefault(m.kind, []).append(m)
@@ -353,8 +495,8 @@ def render_script_markdown(
     else:
         lines.append("_No members found._")
 
-    # Detailed sections
     def _detail(kind: str, heading: str):
+        """Append a detailed section by member kind."""
         items = by_kind.get(kind) or []
         if not items: return
         lines.extend([f"## {heading}", ""])
@@ -391,7 +533,18 @@ def render_function_markdown(
     style: str = "doxygen",
     references_md_lines: Optional[List[str]] = None
 ) -> str:
-    """Render a single function page in Doxygen-like style."""
+    """Render a single function reference page.
+
+    Args:
+        doc: Parent script.
+        func: Function member to render.
+        project_root: Root used to present relative file paths.
+        style: Currently unused; reserved for parity with class rendering.
+        references_md_lines: Optional bullet list of “References” to append.
+
+    Returns:
+        The Markdown page content.
+    """
     title = doc.class_name or doc.path.stem
     rel = doc.path.relative_to(project_root) if hasattr(Path, "is_relative_to") and doc.path.is_relative_to(project_root) else doc.path
 
@@ -435,7 +588,6 @@ def render_function_markdown(
         lines.append("```")
         lines.append("")
 
-    # New: References section (if any)
     if references_md_lines:
         lines.append("## References")
         lines.append("")
@@ -445,11 +597,19 @@ def render_function_markdown(
 
     return "\n".join(lines).rstrip() + "\n"
 
-# =========================================
-# Parser
-# =========================================
-
 def parse_gd_script(path: Path) -> ScriptDoc:
+    """Parse a single .gd file and extract documentation and members.
+
+    This is a lightweight, line-oriented parser tuned for common Godot 4
+    idioms. It collects contiguous ``##`` lines as docblocks and associates
+    them with the next declaration (function, var, const, signal, enum).
+
+    Args:
+        path: Path to the GDScript file.
+
+    Returns:
+        :class:`ScriptDoc` with script-level doc (if any) and member list.
+    """
     text = path.read_text(encoding="utf-8", errors="ignore")
     lines = text.splitlines()
     class_name = None
@@ -487,7 +647,6 @@ def parse_gd_script(path: Path) -> ScriptDoc:
                     decorators=decorators, doc=db,
                     source_start_line=start_line, source_end_line=end_line, source_code=code
                 ))
-                # jump past function definition to avoid duplicate
                 i = end_excl
                 continue
             elif m := VAR_RE.match(target):
@@ -511,7 +670,6 @@ def parse_gd_script(path: Path) -> ScriptDoc:
                 members.append(MemberDoc(kind="enum", name=name, decorators=decorators, doc=db))
                 i = k + 1
                 continue
-            # orphan script-level doc
             if script_doc is None:
                 script_doc = db
             else:
@@ -544,7 +702,6 @@ def parse_gd_script(path: Path) -> ScriptDoc:
             members.append(MemberDoc(kind="enum", name=name))
         i += 1
 
-    # De-duplicate members by (kind, name, start_line)
     seen = set()
     deduped: List[MemberDoc] = []
     for m in members:
@@ -555,10 +712,6 @@ def parse_gd_script(path: Path) -> ScriptDoc:
         deduped.append(m)
     return ScriptDoc(path=path, class_name=class_name, extends=extends, script_doc=script_doc, members=deduped)
 
-# =========================================
-# Indexing and linking
-# =========================================
-
 def _build_index_for_docs(
     docs: List[ScriptDoc],
     out_root: Path,
@@ -566,9 +719,20 @@ def _build_index_for_docs(
     keep_structure: bool,
     split_functions: bool
 ) -> Dict[str, ClassIndexEntry]:
-    """
-    Build an index of classes by 'title' (class_name or file stem).
-    Maps both the class_name (if any) and the file stem to the same entry.
+    """Build hyperlink index from parsed docs.
+
+    Maps both ``class_name`` (if any) and the file stem to the same entry.
+
+    Args:
+        docs: Parsed scripts.
+        out_root: Output root directory for relative paths.
+        src_root: Source root used to compute relative mirrors when
+            ``keep_structure`` is True.
+        keep_structure: Mirror source folder structure under the output root.
+        split_functions: Whether per-function files are generated.
+
+    Returns:
+        Dict keyed by class title (and file stem) → :class:`ClassIndexEntry`.
     """
     index: Dict[str, ClassIndexEntry] = {}
     for d in docs:
@@ -595,7 +759,6 @@ def _build_index_for_docs(
             function_pages_rel=function_pages_rel
         )
 
-        # Map by class name and by file stem (so links work even if no class_name)
         keys = [class_basename]
         if d.class_name and d.class_name != class_basename:
             keys.append(d.class_name)
@@ -605,7 +768,6 @@ def _build_index_for_docs(
         for k in keys:
             if k not in index:
                 index[k] = entry
-            # prefer explicit class_name key if collisions happen; leave first insertion
     return index
 
 def _compute_reference_links_for_function(
@@ -615,8 +777,17 @@ def _compute_reference_links_for_function(
     index: Dict[str, ClassIndexEntry],
     split_functions: bool
 ) -> List[str]:
-    """
-    Returns markdown bullet list lines linking to referenced objects found in func_doc_raw.
+    """Compute Markdown bullets for references mentioned in a function doc.
+
+    Args:
+        func_doc_raw: Raw BBCode docblock text for the function.
+        current_class_title: Title (class name or stem) of the current class.
+        current_file_rel: Current output file path relative to the output root.
+        index: Global class index.
+        split_functions: Whether function pages exist for deep linking.
+
+    Returns:
+        A list of Markdown list items linking to referenced classes/members.
     """
     refs = extract_references_from_text(func_doc_raw, default_class=current_class_title)
     if not refs:
@@ -630,13 +801,11 @@ def _compute_reference_links_for_function(
         href: Optional[str] = None
 
         if r.kind == "class":
-            # link to class page if we know it
             cls_name = r.cls or r.raw_target
             entry = index.get(cls_name)
             if entry:
                 href = os.path.relpath((Path() / entry.class_page_rel).as_posix(), start=(Path() / current_file_rel).parent.as_posix())
         else:
-            # member kinds
             cls_name = r.cls or current_class_title
             entry = index.get(cls_name)
             if entry:
@@ -649,7 +818,6 @@ def _compute_reference_links_for_function(
                         href = os.path.relpath((Path() / entry.class_page_rel).as_posix(), start=(Path() / current_file_rel).parent.as_posix())
                         href = f"{href}#{anchor}"
                 else:
-                    # member, signal, constant, enum -> link to class page with anchor to '### name'
                     anchor = _anchor_id(r.member or "")
                     href = os.path.relpath((Path() / entry.class_page_rel).as_posix(), start=(Path() / current_file_rel).parent.as_posix())
                     href = f"{href}#{anchor}"
@@ -666,10 +834,6 @@ def _compute_reference_links_for_function(
 
     return bullets
 
-# =========================================
-# High-level write
-# =========================================
-
 def write_docs(
     src: Path,
     out: Path,
@@ -680,6 +844,28 @@ def write_docs(
     style: str="doxygen",
     split_functions: bool=False
 ) -> None:
+    """Generate Markdown docs from a GDScript source tree.
+
+    Workflow:
+      1. Glob ``*.gd`` files under ``src``.
+      2. Parse each file into :class:`ScriptDoc`.
+      3. Build a class index for links and (optionally) function pages.
+      4. Render class/function pages and write to ``out``.
+      5. Optionally create ``INDEX.md`` (or a bundled ``DOCUMENTATION.md``).
+
+    Args:
+        src: Source root directory to scan (resolved to absolute).
+        out: Output directory (created if missing).
+        keep_structure: Mirror the source folder structure under ``out``.
+        single_file: Write a single ``DOCUMENTATION.md`` instead of per-class files.
+        make_index: Write a top-level ``INDEX.md`` (ignored if ``single_file``).
+        glob: Glob pattern relative to ``src`` (default: ``**/*.gd``).
+        style: Rendering style, ``'doxygen'`` (default) or ``'classic'``.
+        split_functions: Emit separate pages under ``<ClassName>/functions/``.
+
+    Returns:
+        None. Files are written to disk.
+    """
     src = src.resolve()
     out.mkdir(parents=True, exist_ok=True)
 
@@ -688,16 +874,13 @@ def write_docs(
         print(f"No .gd files found under: {src}", file=sys.stderr)
         return
 
-    # Pass 1: parse all
     docs: List[ScriptDoc] = [parse_gd_script(p) for p in scripts]
 
-    # Build index (paths relative to out root)
     class_index = _build_index_for_docs(
         docs=docs, out_root=out, src_root=src,
         keep_structure=keep_structure, split_functions=split_functions
     )
 
-    # Pass 2: render & write
     rendered: List[Tuple[ScriptDoc, str, Path]] = []
     class_page_paths: Dict[str, Path] = {}
 
@@ -713,18 +896,15 @@ def write_docs(
             func_dir = target_dir / class_basename / "functions"
             func_dir.mkdir(parents=True, exist_ok=True)
             link_dir = f"{class_basename}/functions"
-        # Render the class page
         md = render_script_markdown(d, project_root=src, style=style, link_functions_dir=link_dir)
         rendered.append((d, md, class_md_path))
         class_page_paths[class_basename] = class_md_path
 
-        # Per-function pages (with References)
         if split_functions:
             for m in d.members:
                 if m.kind != "func":
                     continue
                 fpath = (target_dir / class_basename / "functions" / f"{_slug(m.name)}.md")
-                # Compute reference links from the docblock 'raw' text (BBCode form)
                 raw = m.doc.raw if (m.doc and m.doc.raw) else ""
                 current_file_rel = fpath.relative_to(out)
                 refs_md = _compute_reference_links_for_function(
@@ -737,7 +917,6 @@ def write_docs(
                 fmd = render_function_markdown(d, m, project_root=src, style=style, references_md_lines=refs_md)
                 fpath.write_text(fmd, encoding="utf-8")
 
-    # Write class pages (or bundle)
     if single_file:
         bundle = ["# Project Documentation", ""]
         for _, md, _ in rendered:
@@ -747,7 +926,6 @@ def write_docs(
         for _, md, path in rendered:
             path.write_text(md, encoding="utf-8")
 
-    # Index
     if make_index and not single_file:
         index_lines = ["# Index", ""]
         for d, _, path in rendered:
