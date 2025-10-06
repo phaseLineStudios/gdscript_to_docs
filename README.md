@@ -14,7 +14,7 @@ Export **Godot 4.x GDScript documentation comments** (`##` blocks) into clean Ma
 - Optional classic list style via `--style classic`
 - Optional index `INDEX.md` and single-file bundle `DOCUMENTATION.md`
 
-> Compatible with Windows, macOS, and Linux. Tested on Python 3.9–3.13.
+> Compatible with Windows, macOS, and Linux. Tested on Python 3.12–3.13.
 
 ---
 
