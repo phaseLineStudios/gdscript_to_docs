@@ -1,5 +1,5 @@
 from pathlib import Path
-from gdscript_to_docs.core import write_docs
+from gdscript_to_docs.writer import write_docs
 
 SAMPLE_GD = """\
 ## Player controller
