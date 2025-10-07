@@ -1,3 +1,22 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "gdscript-to-docs"
+version = "0.1.0"
+description = "GDScript documentation extractor and Markdown renderer"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Phase Line Studios" }]
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "mypy>=1.8"]
+
+[tool.setuptools]
+packages = ["gdscript_to_docs"]
+
+[project.scripts]
+gdscript-to-docs = "gdscript_to_docs.cli:main"

@@ -1,5 +1,5 @@
 import re
-from gdscript_to_docs.core import bbcode_to_markdown
+from gdscript_to_docs.bbcode import bbcode_to_markdown
 
 def test_bbcode_basic():
     src = "[b]bold[/b] [i]it[/i] [u]u[/u] [url=https://x.y]z[/url] [br] line2"
