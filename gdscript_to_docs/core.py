@@ -324,6 +324,13 @@ def _capture_function_block(lines: List[str], func_start_idx: int) -> tuple[int,
     code = "\n".join(lines[start:end]).rstrip() + "\n"
     return end, code
 
+def _rel_href(target_rel: Path, start_rel: Path) -> str:
+    """Return a POSIX relative href from start_rel → target_rel.
+
+    Both paths must be relative to the same root (the output root).
+    """
+    return Path(os.path.relpath(target_rel, start=start_rel)).as_posix()
+
 REF_TAG_RE = re.compile(r"\[(method|member|signal|constant|enum|class)\s+([^\]]+)\]")
 
 def extract_references_from_text(text_with_bbcode: str, default_class: Optional[str]) -> List[ParsedReference]:
@@ -555,7 +562,7 @@ def render_function_markdown(
         lines.append(f"*Defined at:* `{rel.as_posix()}` (lines {func.source_start_line}–{func.source_end_line})</br>")
     else:
         lines.append(f"*File:* `{rel.as_posix()}`")
-    lines.append(f"*Belongs to:* [{title}](../{title}.md)")
+    lines.append(f"*Belongs to:* [{title}](../../{title}.md)")
     lines.append("")
 
     lines += ["**Signature**", "", "```gdscript", func.signature or f"func {func.name}()", "```", ""]
@@ -804,7 +811,7 @@ def _compute_reference_links_for_function(
             cls_name = r.cls or r.raw_target
             entry = index.get(cls_name)
             if entry:
-                href = os.path.relpath((Path() / entry.class_page_rel).as_posix(), start=(Path() / current_file_rel).parent.as_posix())
+                href = _rel_href(entry.class_page_rel, current_file_rel.parent)
         else:
             cls_name = r.cls or current_class_title
             entry = index.get(cls_name)
@@ -812,15 +819,15 @@ def _compute_reference_links_for_function(
                 if r.kind == "method":
                     if split_functions and r.member and r.member in entry.function_pages_rel:
                         target = entry.function_pages_rel[r.member]
-                        href = os.path.relpath((Path() / target).as_posix(), start=(Path() / current_file_rel).parent.as_posix())
+                        href = _rel_href(target, current_file_rel.parent)
                     else:
+                        base = _rel_href(entry.class_page_rel, current_file_rel.parent)
                         anchor = _anchor_id(r.member or "")
-                        href = os.path.relpath((Path() / entry.class_page_rel).as_posix(), start=(Path() / current_file_rel).parent.as_posix())
-                        href = f"{href}#{anchor}"
+                        href = f"{base}#{anchor}"
                 else:
+                    base = _rel_href(entry.class_page_rel, current_file_rel.parent)
                     anchor = _anchor_id(r.member or "")
-                    href = os.path.relpath((Path() / entry.class_page_rel).as_posix(), start=(Path() / current_file_rel).parent.as_posix())
-                    href = f"{href}#{anchor}"
+                    href = f"{base}#{anchor}"
 
         if href:
             bullet = f"- [{label}]({href})"
