@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import argparse
-from .core import write_docs
+from writer import write_docs
 
 def main(args=None):
     ap = argparse.ArgumentParser(description="Export Godot GDScript documentation comments to Markdown.")
