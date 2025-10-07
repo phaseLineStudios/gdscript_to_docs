@@ -15,8 +15,8 @@ from .parser import parse_gd_script
 from .bbcode import bbcode_to_markdown
 from .render import render_script_markdown, render_function_markdown
 from .references import extract_references_from_text
+from ._version import __version__
 
-__version__ = "0.1.1"
 
 __all__ = [
     "write_docs",
