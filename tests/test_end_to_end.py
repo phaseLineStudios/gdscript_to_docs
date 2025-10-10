@@ -49,8 +49,14 @@ def test_write_docs_generates_markdown(tmp_path: Path):
     assert "**Use with care**" in text and "`method CharacterBody2D.move_and_slide`" in text
     assert "## Member Data Documentation" in text and "### speed" in text and "Decorators: `@export`" in text
 
-    index = (out / "INDEX.md").read_text(encoding="utf-8")
-    assert "[Player](Player.md)" in index
+    index_md = (out / "INDEX.md").read_text(encoding="utf-8")
+    assert "_index/by-folder.md" in index_md
+    assert "_index/classes.md" in index_md
+
+    classes_md_path = out / "_index" / "classes.md"
+    assert classes_md_path.exists()
+    classes_md = classes_md_path.read_text(encoding="utf-8")
+    assert "[Player](../Player.md)" in classes_md
 
 def test_single_file_mode(tmp_path: Path):
     project = tmp_path / "p"
