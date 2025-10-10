@@ -44,6 +44,11 @@ def bbcode_to_markdown(text: str) -> str:
     t = re.sub(r"\[center\](.*?)\[/center\]", r"\1", t, flags=re.S)
     t = re.sub(r"\[color=[^\]]+\](.*?)\[/color\]", r"\1", t, flags=re.S)
     t = re.sub(r"\[font=[^\]]+\](.*?)\[/font\]", r"\1", t, flags=re.S)
-    t = re.sub(r"\[(method|member|signal|constant|enum|class)\s+([^\]]+)\]", r"`\1 \2`", t)
+    t = re.sub(
+        r"\[(method|member|signal|constant|enum|class|Class|annotation|constructor|operator|theme_item)\s+([^\]]+)\]",
+        lambda m: f"`{m.group(1).lower()} {m.group(2)}`",
+        t,
+    )
+    t = re.sub(r"\[param\s+([^\]]+)\]", r"`\1`", t)
     t = t.replace("[br]", "  \n")
     return t.strip()

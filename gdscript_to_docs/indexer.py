@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from .models import ClassIndexEntry, ScriptDoc
@@ -93,27 +94,43 @@ def compute_reference_links_for_function(
         label = f"`{r.kind} {label_qual}`"
         href: Optional[str] = None
 
-        if r.kind == "class":
-            cls_name = r.cls or r.raw_target
-            entry = index.get(cls_name)
-            if entry:
-                href = rel_href(entry.class_page_rel, current_file_rel.parent)
+        kind = r.kind
+        cls_name = r.cls or (r.raw_target if kind == "class" else current_class_title)
+        entry = index.get(cls_name)
+
+        if not entry:
+            bullet = f"- {label}"
+            key = (label, "")
+            if key not in seen:
+                seen.add(key)
+                bullets.append(bullet)
+            continue
+
+        if kind == "class":
+            href = os.path.relpath((Path() / entry.class_page_rel).as_posix(),
+                                start=(Path() / current_file_rel).parent.as_posix())
+        elif kind == "method":
+            if split_functions and r.member and r.member in entry.function_pages_rel:
+                target = entry.function_pages_rel[r.member]
+                href = os.path.relpath((Path() / target).as_posix(),
+                                    start=(Path() / current_file_rel).parent.as_posix())
+            else:
+                base = os.path.relpath((Path() / entry.class_page_rel).as_posix(),
+                                    start=(Path() / current_file_rel).parent.as_posix())
+                anchor = anchor_id(r.member or "")
+                href = f"{base}#{anchor}"
         else:
-            cls_name = r.cls or current_class_title
-            entry = index.get(cls_name)
-            if entry:
-                if r.kind == "method":
-                    if split_functions and r.member and r.member in entry.function_pages_rel:
-                        target = entry.function_pages_rel[r.member]
-                        href = rel_href(target, current_file_rel.parent)
-                    else:
-                        base = rel_href(entry.class_page_rel, current_file_rel.parent)
-                        anchor = anchor_id(r.member or "")
-                        href = f"{base}#{anchor}"
-                else:
-                    base = rel_href(entry.class_page_rel, current_file_rel.parent)
-                    anchor = anchor_id(r.member or "")
-                    href = f"{base}#{anchor}"
+            kind_map = {"member": "var", "constant": "const", "signal": "signal", "enum": "enum"}
+            idx_kind = kind_map.get(kind)
+
+            if idx_kind and r.member and r.member in (entry.members_by_kind.get(idx_kind) or set()):
+                base = os.path.relpath((Path() / entry.class_page_rel).as_posix(),
+                                    start=(Path() / current_file_rel).parent.as_posix())
+                anchor = anchor_id(r.member)
+                href = f"{base}#{anchor}"
+            else:
+                href = os.path.relpath((Path() / entry.class_page_rel).as_posix(),
+                                    start=(Path() / current_file_rel).parent.as_posix())
 
         bullet = f"- [{label}]({href})" if href else f"- {label}"
         key = (label, href or "")

@@ -19,6 +19,7 @@ def extract_references_from_text(text_with_bbcode: str, default_class: Optional[
     """
     refs: List[ParsedReference] = []
     for kind, target in REF_TAG_RE.findall(text_with_bbcode or ""):
+        kind = kind.lower()
         target = target.strip()
         cls = None
         member = None

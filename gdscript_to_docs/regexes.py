@@ -11,6 +11,10 @@ CLASS_NAME_RE = re.compile(r"^\s*class_name\s+([A-Za-z_]\w*)")
 EXTENDS_RE = re.compile(r"^\s*extends\s+(.+)$")
 DECORATOR_LINE_RE = re.compile(r"^\s*@[\w\(\)\.,\s:\"']+$")
 DOC_LINE_RE = re.compile(r"^\s*##(.*)$")
+PARAM_SOL_RE = re.compile(r"^\s*\[param\s+([^\]]+)\]\s*(.*)$")
+RETURN_SOL_RE = re.compile(r"^\s*\[return\]\s*(.*)$")
 
 # Reference tags inside doc text
-REF_TAG_RE = re.compile(r"\[(method|member|signal|constant|enum|class)\s+([^\]]+)\]")
+REF_TAG_RE = re.compile(
+    r"\[(method|member|signal|constant|enum|class|Class|annotation|constructor|operator|theme_item)\s+([^\]]+)\]"
+)
