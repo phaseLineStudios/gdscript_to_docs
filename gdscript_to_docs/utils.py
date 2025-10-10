@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import List, Tuple, Optional
-from .regexes import PARAM_SOL_RE, RETURN_SOL_RE
+from .regexes import PARAM_SOL_RE, RETURN_SOL_RE, DECORATOR_KEYWORDS_RE, INLINE_DECOS_BEFORE_VAR
 import os
 import re
 
@@ -121,6 +121,19 @@ def extract_params_and_return(raw: str) -> tuple[list[tuple[str, str]], Optional
 
     remaining_raw = "\n".join(kept).rstrip()
     return params, ret_text, remaining_raw
+
+def is_decorator_only_line(s: str) -> bool:
+    """
+    True if the line is a decorator line (starts with '@') and does NOT
+    contain a declaration keyword (var/const/signal/func/enum).
+    Accepts any characters (quotes, *, %, etc).
+    """
+    s = s.strip()
+    return s.startswith("@") and not DECORATOR_KEYWORDS_RE.search(s)
+
+def extract_inline_decorators(line: str) -> list[str]:
+    """Return decorators that appear inline before 'var' on the same line."""
+    return INLINE_DECOS_BEFORE_VAR.findall(line or "")
 
 def rel_href(target_rel: Path, start_rel: Path) -> str:
     """Return a POSIX relative href from start_rel → target_rel.
