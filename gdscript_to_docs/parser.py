@@ -3,10 +3,10 @@ from pathlib import Path
 from typing import List, Optional
 from .models import DocBlock, MemberDoc, ScriptDoc, TutorialLink
 from .regexes import (
-    CLASS_NAME_RE, CONST_RE, DECORATOR_LINE_RE, DOC_LINE_RE, ENUM_RE, EXTENDS_RE,
+    CLASS_NAME_RE, CONST_RE, DOC_LINE_RE, ENUM_RE, EXTENDS_RE,
     FUNC_RE, SIGNAL_RE, VAR_RE
 )
-from .utils import capture_function_block
+from .utils import capture_function_block, is_decorator_only_line, extract_inline_decorators
 from .bbcode import bbcode_to_markdown
 import re
 
@@ -79,8 +79,8 @@ def parse_gd_script(path: Path) -> ScriptDoc:
             db, j = _collect_docblock(lines, i)
             k = j
             decorators: List[str] = []
-            while k < len(lines) and (not lines[k].strip() or DECORATOR_LINE_RE.match(lines[k])):
-                if DECORATOR_LINE_RE.match(lines[k]):
+            while k < len(lines) and (not lines[k].strip() or is_decorator_only_line(lines[k])):
+                if is_decorator_only_line(lines[k]):
                     decorators.append(lines[k].strip())
                 k += 1
             target = lines[k] if k < len(lines) else ""
@@ -100,8 +100,14 @@ def parse_gd_script(path: Path) -> ScriptDoc:
                 i = end_excl
                 continue
             elif m := VAR_RE.match(target):
-                name = m.group(1); typ = (m.group(2) or "").strip() or None
-                members.append(MemberDoc(kind="var", name=name, type_hint=typ, decorators=decorators, doc=db))
+                name = m.group(1)
+                typ = (m.group(2) or "").strip() or None
+                inline_decos = extract_inline_decorators(target)
+                members.append(MemberDoc(
+                    kind="var", name=name, type_hint=typ,
+                    decorators=[*decorators, *inline_decos],  # <- merge
+                    doc=db
+                ))
                 i = k + 1
                 continue
             elif m := CONST_RE.match(target):

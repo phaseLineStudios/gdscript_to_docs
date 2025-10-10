@@ -1,8 +1,10 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional
+from .bbcode import bbcode_to_markdown
 from .models import MemberDoc, ScriptDoc
-from .utils import slug, split_brief_details, anchor_id
+from .utils import slug, split_brief_details, extract_params_and_return
+import re
 
 def _inline_sig(m: MemberDoc) -> str:
     """Build a compact inline signature for list views."""
@@ -242,6 +244,28 @@ def render_function_markdown(
     lines.append("")
 
     lines += ["**Signature**", "", "```gdscript", func.signature or f"func {func.name}()", "```", ""]
+    params: list[tuple[str, str]] = []
+    ret_text: Optional[str] = None
+    desc_md: Optional[str] = None
+
+    if func.doc:
+        p, r, remaining_raw = extract_params_and_return(func.doc.raw or "")
+        params, ret_text = p, r
+        remaining_raw = re.sub(r"\[param\s+([^\]]+)\]", r"`\1`", remaining_raw)
+        desc_md = bbcode_to_markdown(remaining_raw) if remaining_raw.strip() else None
+
+    if params:
+        for nm, ds in params:
+            bullet = f"- **{nm}**"
+            if ds:
+                ds = re.sub(r"\[param\s+([^\]]+)\]", r"`\1`", ds)
+                bullet += f": {bbcode_to_markdown(ds)}"
+            lines.append(bullet)
+    if ret_text:
+        ret_text = re.sub(r"\[param\s+([^\]]+)\]", r"`\1`", ret_text)
+        lines.append(f"- **Return Value**: {bbcode_to_markdown(ret_text)}")
+    if params or ret_text:
+        lines.append("")
 
     if func.decorators:
         lines.append("**Decorators:** " + ", ".join(f"`{d}`" for d in func.decorators))
@@ -258,10 +282,12 @@ def render_function_markdown(
             lines.append(f"**Tutorials:** {tuts}")
             lines.append("")
         if func.doc.markdown:
-            lines.append("## Description")
-            lines.append("")
-            lines.append(func.doc.markdown)
-            lines.append("")
+            desc_to_use = desc_md or (func.doc.markdown if func.doc and func.doc.markdown else None)
+            if desc_to_use:
+                lines.append("## Description")
+                lines.append("")
+                lines.append(desc_to_use)
+                lines.append("")
 
     if func.source_code:
         lines.append("## Source")
