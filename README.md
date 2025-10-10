@@ -6,13 +6,17 @@
 
 Export **Godot 4.x GDScript documentation comments** (`##` blocks) into clean Markdown, Doxygen-style class pages, and optional **per-function** pages — with **BBCode → Markdown** conversion and **cross-links** to referenced classes/methods/signals.
 
-- Parses `##` doc comments placed right above the member (as per Godot docs)
-- Recognizes `func`, `var`, `const`, `signal`, `enum`
-- Converts BBCode (`[b]`, `[i]`, `[code]`, `[codeblock]`, `[url]`, `[img]`, `[br]`, etc.)
-- Renders **Doxygen-like** class pages (Synopsis, Brief, Detailed, member summaries + detailed sections)
-- `--split-functions` emits **one Markdown file per function** with full source, file/line range, and a **References** section that links `[method Class.name]`, `[class Class]`, `[signal Class.sig]`, etc.
-- Optional classic list style via `--style classic`
-- Optional index `INDEX.md` and single-file bundle `DOCUMENTATION.md`
+- Parses `##` doc comments above members (Godot style)
+- Detects `func`, `var`, `const`, `signal`, `enum`
+- Converts BBCode: `[b]`, `[i]`, `[u]`, `[code]`, `[codeblock]`, `[url]`, `[img]`, `[br]`, …
+- Cross-reference tags (linking in “References”):  
+  `[method …]`, `[member …]`, `[signal …]`, `[constant …]`, `[enum …]`, `[class …]`, plus **Godot-style extras**:  
+  `[Class …]`, `[annotation …]`, `[constructor …]`, `[operator …]`, `[theme_item …]`
+- **Parameters/Return parsing** in function docs:  
+  Start-of-line `[param name] desc…` → bullet list; `[return] desc…` → “Return Value” bullet; inline `[param name]` → `` `name` ``
+- **Per-function pages** (`--split-functions`) with full source, file/line range, and a References section
+- **Structured index**: small `INDEX.md` dashboard + `_index/by-folder.md`, `_index/classes.md`, and (if split) `_index/functions.md`
+- Handles decorators robustly (e.g. `@export_file("*.tres")`, `@export_range(...)`) and attaches docblocks to exported vars correctly
 
 > Compatible with Windows, macOS, and Linux. Tested on Python 3.12–3.13.
 
@@ -45,12 +49,15 @@ gdscript_to_docs "\path\to\godot\project" --out ".\docs" --keep-structure --make
 This generates:
 ```bash
 docs/
-├── INDEX.md
-├── Player.md                     # Class page (Doxygen-style)
-└── Player/
-    └── functions/
-        ├── move.md               # Per-function page
-        └── jump.md
+├─ INDEX.md                     # tiny dashboard
+├─ _index/
+│  ├─ by-folder.md              # classes grouped by folder
+│  ├─ classes.md                # A–Z class list
+│  └─ functions.md              # A–Z global function list (only if split-functions)
+├─ Player.md                    # class page
+└─ Player/
+   └─ functions/
+      └─ move.md                # per-function page (if split)
 ```
 
 ## CLI
@@ -100,8 +107,33 @@ options:
 If a target isn’t found in the generated docs, it’s rendered as plain text to avoid broken links.
 
 ## BBCode → Markdown
-**Supported**: [b], [i], [u], [code], [codeblock], [url], [img], [br], plus Godot doc refs:<br/>
-[method …], [member …], [signal …], [constant …], [enum …], [class …].
+### References
+Supported in docs and turned into links in the references section.
+```bash
+[class Foo], [Class Foo]     # link to class page
+[method Foo.bar]             # link to per-function page (if split) or class+anchor
+[member Foo.prop], [signal Foo.sig], [constant Foo.NAME], [enum Foo.Enum]
+[annotation @GDScript.@rpc], [constructor Color.Color], [operator Color.operator *], [theme_item Label.font]
+```
+
+### Parameters / Return
+Place at the **start of a line** to become list bullets:
+```gdscript
+## Describes movement. [method CharacterBody2D.move_and_slide]
+## [param speed] units per second
+## [param accel] acceleration
+## [return] true if ok
+func move(speed: float, accel: float) -> bool:
+    pass
+
+```
+Renders as:
+- Summary bullet: `func move(delta: float) -> void — Describes movement.`
+- Function page includes the doc text and a References link to `CharacterBody2D::move_and_slide`.
+- **speed**: units per second
+- **accel**: acceleration
+- **Return Value**: true if ok
+Inline `[param speed]` in prose renders as `speed`.
 
 Example:
 ```gdscript
@@ -110,10 +142,6 @@ Example:
 func move(delta: float) -> void:
     pass
 ```
-
-Renders to:
-- Summary bullet: `func move(delta: float) -> void — Use with care.`
-- Function page includes the doc text and a References link to `CharacterBody2D::move_and_slide`.
 
 ## Index & single-file bundle
 - `--make-index` writes an `INDEX.md` that lists class pages and, if split, function pages beneath each class.
